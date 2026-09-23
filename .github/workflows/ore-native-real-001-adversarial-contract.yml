@@ -1,0 +1,53 @@
+name: ORE Native Real 001 Adversarial Contract
+
+on:
+  push:
+    branches:
+      - ore-v0.2-native-real-001
+  workflow_dispatch:
+
+jobs:
+  adversarial-contract:
+    name: failedWithReasons adversarial source contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Attack narrow repair contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          s = Path("sanctions-oracle/src/sync.ts").read_text()
+          failures = []
+
+          interface = re.search(r"export interface SyncResult\s*\{(?P<body>.*?)\n\}", s, re.S)
+          ibody = interface.group("body") if interface else ""
+          if len(re.findall(r"\bfailedWithReasons\s*:\s*FailedAddress\[\]\s*;", ibody)) != 1:
+              failures.append("field must be declared exactly once with FailedAddress[] type")
+
+          fn = re.search(r"export async function syncSanctionsToDenylist\b(?P<body>.*?)(?=\ninterface RpcDenylistWriterOptions)", s, re.S)
+          body = fn.group("body") if fn else ""
+
+          if not re.search(r"const\s+failedWithReasons\s*:\s*FailedAddress\[\]\s*=\s*\[\]", body):
+              failures.append("typed accumulator missing")
+
+          push = re.search(r"failedWithReasons\.push\s*\(\s*\{(?P<body>.*?)\}\s*\)", body, re.S)
+          pbody = push.group("body") if push else ""
+          if not re.search(r"\baddress\s*[,}]", pbody):
+              failures.append("failure record does not preserve address")
+          if not re.search(r"\berror\s*:", pbody):
+              failures.append("failure record does not preserve error reason")
+
+          returns = re.findall(r"return\s*\{(?P<body>.*?)\}\s*;", body, re.S)
+          result_returns = [r for r in returns if re.search(r"(^|[,\n])\s*failed\s*(,|$)", r)]
+          if len(result_returns) != 1:
+              failures.append("expected exactly one SyncResult-like return containing failed")
+          elif not re.search(r"(^|[,\n])\s*failedWithReasons\s*(,|$)", result_returns[0]):
+              failures.append("SyncResult-like return drops failedWithReasons")
+
+          if failures:
+              raise SystemExit("ADVERSARIAL CONTRACT FAIL:\n- " + "\n- ".join(failures))
+          print("PASS: adversarial narrow contract resisted all checks")
+          PY

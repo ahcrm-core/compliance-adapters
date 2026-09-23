@@ -271,6 +271,8 @@ export interface SyncResult {
    * provider errors programmatically).
    */
   failed: string[];
+  /** Failed addresses paired with their final provider error message. */
+  failedWithReasons: FailedAddress[];
   /**
    * Input entries that are not valid Stellar Ed25519 public keys (StrKey
    * `G...`). These are never checked against the provider — a malformed entry
@@ -512,6 +514,7 @@ safeLogger.info('sanctions-oracle: screening complete', {
     flagged,
     written,
     failed,
+    failedWithReasons,
     invalid,
     skipped,
     dryRun,
