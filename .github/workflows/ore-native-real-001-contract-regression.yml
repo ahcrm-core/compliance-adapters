@@ -1,0 +1,48 @@
+name: ORE Native Real 001 Contract Regression
+
+on:
+  push:
+    branches:
+      - ore-v0.2-native-real-001
+  workflow_dispatch:
+
+jobs:
+  contract-regression:
+    name: failedWithReasons narrow contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify narrow source contract
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import re
+
+          p = Path("sanctions-oracle/src/sync.ts")
+          s = p.read_text()
+
+          interface = re.search(r"export interface SyncResult\s*\{(?P<body>.*?)\n\}", s, re.S)
+          if not interface:
+              raise SystemExit("SyncResult interface not found")
+          if not re.search(r"\bfailedWithReasons\s*:\s*FailedAddress\[\]\s*;", interface.group("body")):
+              raise SystemExit("SyncResult.failedWithReasons: FailedAddress[] missing")
+
+          fn = re.search(r"export async function syncSanctionsToDenylist\b(?P<body>.*?)(?=\ninterface RpcDenylistWriterOptions)", s, re.S)
+          if not fn:
+              raise SystemExit("syncSanctionsToDenylist body not found")
+          body = fn.group("body")
+
+          if not re.search(r"const\s+failedWithReasons\s*:\s*FailedAddress\[\]\s*=\s*\[\]", body):
+              raise SystemExit("failedWithReasons accumulator missing")
+          if not re.search(r"failedWithReasons\.push\s*\(", body):
+              raise SystemExit("failedWithReasons is not populated")
+
+          returns = re.findall(r"return\s*\{(?P<body>.*?)\}\s*;", body, re.S)
+          if not returns:
+              raise SystemExit("result return object not found")
+          if not any(re.search(r"(^|[,\n])\s*failedWithReasons\s*(,|$)", r) for r in returns):
+              raise SystemExit("failedWithReasons missing from returned SyncResult object")
+
+          print("PASS: narrow failedWithReasons source contract is present")
+          PY
